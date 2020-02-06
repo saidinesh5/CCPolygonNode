@@ -42,211 +42,129 @@
 // ** POINT IN A TRIANGLE TEST.
 // ** SUBMITTED BY JOHN W. RATCLIFF (jratcliff@verant.com) July 22, 2000
 
+// Cleaned up the code to use modern C++ features and fixed a couple of bugs
 
-/**************************************************************************/
-/*** END OF HEADER FILE TRIANGULATE.H BEGINNING OF CODE TRIANGULATE.CPP ***/
-/**************************************************************************/
-
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+#include <algorithm>
+#include <limits>
+#include <numeric>
 
 #include "triangulate.h"
 
-static const float EPSILON=0.0000000001f;
+namespace Triangulator {
 
-float Triangulate::Area(const Vector2dVector &contour)
-{
-	
-	int n = (int)contour.size();
-	
-	float A=0.0f;
-	
-	for(int p=n-1,q=0; q<n; p=q++)
-	{
-		A+= contour[p].GetX()*contour[q].GetY() - contour[q].GetX()*contour[p].GetY();
-	}
-	return A*0.5f;
+bool Point::operator==(const Point &b) const {
+    return std::numeric_limits<real>::epsilon() > (X - b.X)*(X - b.X)
+                                                + (Y - b.Y)*(Y - b.Y);
 }
 
-/*
- InsideTriangle decides if a point P is Inside of the triangle
- defined by A, B, C.
- */
-bool Triangulate::InsideTriangle(float Ax, float Ay,
-								 float Bx, float By,
-								 float Cx, float Cy,
-								 float Px, float Py)
+static real area(const std::vector<Point> &contour) {
+    if (contour.size() <  3)
+        return 0;
 
-{
-	float ax, ay, bx, by, cx, cy, apx, apy, bpx, bpy, cpx, cpy;
-	float cCROSSap, bCROSScp, aCROSSbp;
-	
-	ax = Cx - Bx;  ay = Cy - By;
-	bx = Ax - Cx;  by = Ay - Cy;
-	cx = Bx - Ax;  cy = By - Ay;
-	apx= Px - Ax;  apy= Py - Ay;
-	bpx= Px - Bx;  bpy= Py - By;
-	cpx= Px - Cx;  cpy= Py - Cy;
-	
-	aCROSSbp = ax*bpy - ay*bpx;
-	cCROSSap = cx*apy - cy*apx;
-	bCROSScp = bx*cpy - by*cpx;
-	
-	return ((aCROSSbp >= 0.0f) && (bCROSScp >= 0.0f) && (cCROSSap >= 0.0f));
-};
+    int n = contour.size();
+    real result = 0;
 
-bool Triangulate::Snip(const Vector2dVector &contour,int u,int v,int w,int n,int *V)
-{
-	int p;
-	float Ax, Ay, Bx, By, Cx, Cy, Px, Py;
-	
-	Ax = contour[V[u]].GetX();
-	Ay = contour[V[u]].GetY();
-	
-	Bx = contour[V[v]].GetX();
-	By = contour[V[v]].GetY();
-	
-	Cx = contour[V[w]].GetX();
-	Cy = contour[V[w]].GetY();
-	
-	if ( EPSILON > (((Bx-Ax)*(Cy-Ay)) - ((By-Ay)*(Cx-Ax))) ) return false;
-	
-	for (p=0;p<n;p++)
-	{
-		if( (p == u) || (p == v) || (p == w) ) continue;
-		Px = contour[V[p]].GetX();
-		Py = contour[V[p]].GetY();
-		if (InsideTriangle(Ax,Ay,Bx,By,Cx,Cy,Px,Py)) return false;
-	}
-	
-	return true;
+    for(int p=n-1,q=0; q < n; p=q++)
+    {
+        result += contour[p].X*contour[q].Y - contour[q].X*contour[p].Y;
+    }
+
+    return result*0.5;
 }
 
-bool Triangulate::Process(const Vector2dVector &contour,Vector2dVector &result)
-{
-	/* allocate and initialize list of Vertices in polygon */
-	
-	int n = (int)contour.size();
-	if ( n < 3 ) return false;
-	
-	int *V = new int[n];
-	
-	/* we want a counter-clockwise polygon in V */
-	
-	if ( 0.0f < Area(contour) )
-		for (int v=0; v<n; v++) V[v] = v;
-	else
-		for(int v=0; v<n; v++) V[v] = (n-1)-v;
-	
-	int nv = n;
-	
-	/*  remove nv-2 Vertices, creating 1 triangle every time */
-	int count = 2*nv;   /* error detection */
-	
-	for(int m=0, v=nv-1; nv>2; )
-	{
-		/* if we loop, it is probably a non-simple polygon */
-		if (0 >= (count--))
-		{
-			//** Triangulate: ERROR - probable bad polygon!
-			return false;
-		}
-		
-		/* three consecutive vertices in current polygon, <u,v,w> */
-		int u = v  ; if (nv <= u) u = 0;     /* previous */
-		v = u+1; if (nv <= v) v = 0;     /* new v    */
-		int w = v+1; if (nv <= w) w = 0;     /* next     */
-		
-		if ( Snip(contour,u,v,w,nv,V) )
-		{
-			int a,b,c,s,t;
-			
-			/* true names of the vertices */
-			a = V[u]; b = V[v]; c = V[w];
-			
-			/* output Triangle */
-			result.push_back( contour[a] );
-			result.push_back( contour[b] );
-			result.push_back( contour[c] );
-			
-			m++;
-			
-			/* remove v from remaining polygon */
-			for(s=v,t=v+1;t<nv;s++,t++) V[s] = V[t]; nv--;
-			
-			/* resest error detection counter */
-			count = 2*nv;
-		}
-	}
-	
-	
-	
-	delete V;
-	
-	return true;
+static bool is_p_inside_triangle_abc(real Ax, real Ay, real Bx, real By, real Cx, real Cy, real Px, real Py) {
+    real ax = Cx - Bx, ay = Cy - By;
+    real bx = Ax - Cx, by = Ay - Cy;
+    real cx = Bx - Ax, cy = By - Ay;
+    real apx = Px - Ax, apy = Py - Ay;
+    real bpx = Px - Bx, bpy = Py - By;
+    real cpx = Px - Cx, cpy = Py - Cy;
+    real aCROSSbp = ax*bpy - ay*bpx;
+    real cCROSSap = cx*apy - cy*apx;
+    real bCROSScp = bx*cpy -by*cpx;
+
+    return ((aCROSSbp >= 0.0f) && (bCROSScp >= 0.0f) && (cCROSSap >= 0.0f));
 }
 
+static bool snip(const std::vector<Point> &contour, size_t u, size_t v, size_t w, const std::vector<size_t>& indices) {
+    float Ax = contour[indices[u]].X;
+    float Ay = contour[indices[u]].Y;
 
-///************************************************************************/
-///*** END OF CODE SECTION TRIANGULATE.CPP BEGINNING OF TEST.CPP A SMALL **/
-///*** TEST APPLICATION TO DEMONSTRATE THE USAGE OF THE TRIANGULATOR     **/
-///************************************************************************/
-//
-//#include <stdio.h>
-//#include <stdlib.h>
-//#include <string.h>
-//#include <assert.h>
-//
-//
-//#include "triangulate.h"
-//
-//void main(int argc,char **argv)
-//{
-//	
-//	// Small test application demonstrating the usage of the triangulate
-//	// class.
-//	
-//	
-//	// Create a pretty complicated little contour by pushing them onto
-//	// an stl vector.
-//	
-//	Vector2dVector a;
-//	
-//	a.push_back( Vector2d(0,6));
-//	a.push_back( Vector2d(0,0));
-//	a.push_back( Vector2d(3,0));
-//	a.push_back( Vector2d(4,1));
-//	a.push_back( Vector2d(6,1));
-//	a.push_back( Vector2d(8,0));
-//	a.push_back( Vector2d(12,0));
-//	a.push_back( Vector2d(13,2));
-//	a.push_back( Vector2d(8,2));
-//	a.push_back( Vector2d(8,4));
-//	a.push_back( Vector2d(11,4));
-//	a.push_back( Vector2d(11,6));
-//	a.push_back( Vector2d(6,6));
-//	a.push_back( Vector2d(4,3));
-//	a.push_back( Vector2d(2,6));
-//	
-//	// allocate an STL vector to hold the answer.
-//	
-//	Vector2dVector result;
-//	
-//	//  Invoke the triangulator to triangulate this polygon.
-//	Triangulate::Process(a,result);
-//	
-//	// print out the results.
-//	int tcount = result.size()/3;
-//	
-//	for (int i=0; i<tcount; i++)
-//	{
-//		const Vector2d &p1 = result[i*3+0];
-//		const Vector2d &p2 = result[i*3+1];
-//		const Vector2d &p3 = result[i*3+2];
-//		printf("Triangle %d => (%0.0f,%0.0f) (%0.0f,%0.0f) (%0.0f,%0.0f)\n",i+1,p1.GetX(),p1.GetY(),p2.GetX(),p2.GetY(),p3.GetX(),p3.GetY());
-//	}
-//	
-//}
+    float Bx = contour[indices[v]].X;
+    float By = contour[indices[v]].Y;
+
+    float Cx = contour[indices[w]].X;
+    float Cy = contour[indices[w]].Y;
+
+    // If the points are collinear, meh
+    if ( std::numeric_limits<real>::epsilon() > (((Bx-Ax)*(Cy-Ay)) - ((By-Ay)*(Cx-Ax))) )
+        return false;
+
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (i != u && i!= v && i != w){
+            const auto& p = contour[indices[i]];
+            if (is_p_inside_triangle_abc(Ax, Ay, Bx, By, Cx, Cy, p.X, p.Y))
+                return false;
+        }
+    }
+
+    return true;
+}
+
+std::vector<size_t> triangulate(const std::vector<Point>& contour) {
+    if (contour.size() < 3)
+        return {};
+
+    std::vector<size_t> result;
+    std::vector<size_t> indices(contour.size(), 0);
+
+    std::iota(std::begin(indices), std::end(indices), 0);
+
+    // Reverse the vertices so we have a counterclockwise polygon
+    if (area(contour) < 0) {
+        std::reverse(indices.begin(), indices.end());
+    }
+
+    // Delete consecutive duplicates. This seems to trip the algorithm
+    auto last = std::unique(indices.begin(), indices.end(),
+                            [&contour](const size_t a, const size_t b) {
+                                return contour[a] == contour[b];
+                            });
+    indices.erase(last, indices.end());
+
+    if (contour[0] == contour[contour.size() - 1]) {
+        indices.pop_back();
+    }
+
+    // Remove n-2 Vertices, creating 1 triangle every time
+    int n = indices.size();
+    // This is for error detection, if the polygon we were provided was not a simple polygon
+    int count = 2*n;
+
+    for (int m=0,  v = n - 1; n > 2; ) {
+        // Triangulation error, we have a bad polygon
+        if (0 >= (count--)) {
+            return {};
+        }
+
+        //3 consecutive vertices. cycle around if we reach the end of vertices
+        int u = v; if (n <= u) u = 0;
+        v = u + 1; if (n <= v) v = 0;
+        int w = v + 1; if (n <= w) w = 0;
+
+        if (snip(contour, u, v, w, indices))  {
+            result.push_back(indices[u]);
+            result.push_back(indices[v]);
+            result.push_back(indices[w]);
+            m++;
+
+            indices.erase(indices.begin() + v);
+            n--;
+            count = 2*n;
+        }
+    }
+
+    return result;
+}
+
+}

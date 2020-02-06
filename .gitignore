@@ -6,3 +6,5 @@
 #
 # Pods/
 
+*.o
+triangulate_test
